@@ -1,0 +1,7 @@
+sudo pip install twine
+python3.7 setup.py bdist_wheel
+twine upload  dist/*
+
+
+python3.7 setup.py bdist_wheel
+twine upload  dist/*
