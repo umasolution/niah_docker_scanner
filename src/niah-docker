@@ -86,13 +86,13 @@ class niah_getDockerImage():
                         sys.exit(1)
                     else:
                         if connType == "azure":
-                                    status, output = commands.getstatusoutput('which az')
+                                    status, output = getstatusoutput('which az')
                                     if len(output) == 0:
                                         print("[ OK ] az tool is not installed! installation guide : https://docs.microsoft.com/en-us/cli/azure/install-azure-cli?view=azure-cli-latest")
                                         sys.exit(1)
 
                         if connType == "aws":
-                                    status, output = commands.getstatusoutput('which aws')
+                                    status, output = getstatusoutput('which aws')
                                     if len(output) == 0:
                                         print("[ OK ] aws tool is not installed! installation guide : https://aws.amazon.com/cli/")
                                         sys.exit(1)
@@ -735,7 +735,38 @@ class niah_getinventory():
 
                 return results
 
-        def getInstallPkgList(self, sourcefolder, dockerimage, language=False):
+        def getInstallPkgList(self, dockerimage, connType, language=False):
+                    imageName = dockerimage
+                    if "/" in imageName:
+                        container_name = imageName.split("/")[1]
+                        container_name = container_name.replace(":", "_")
+                    else:
+                        container_name = imageName.replace(":", "_")
+
+                    container_name = container_name.replace("@", "_")
+
+                    cmd = 'docker run --name %s -it -d %s' % (container_name, imageName)
+                    status, output = getstatusoutput(cmd)
+                    data = output
+
+                    cmd = 'docker export %s > /tmp/%s.tar' % (container_name, container_name)
+                    status, output = getstatusoutput(cmd)
+                    data = output
+
+                    cmd = 'docker rm --force %s' % (container_name)
+                    status, output = getstatusoutput(cmd)
+                    data = output
+
+                    cmd = 'mkdir /tmp/%s' % container_name
+                    status, output = getstatusoutput(cmd)
+                    data = output
+
+                    cmd = 'sudo tar -xf /tmp/%s.tar -C /tmp/%s/' % (container_name, container_name)
+                    status, output = getstatusoutput(cmd)
+                    data = output
+
+                    sourcefolder = "/tmp/%s" % container_name
+
                     packagesResults = {}
                     if not language or language == "java":
                         packagesResults['java'] = {}
@@ -1125,11 +1156,16 @@ class niah_getinventory():
 
 
 
+                    cmd = 'sudo rm -rf /tmp/%s.tar' % (container_name)
+                    status, output = getstatusoutput(cmd)
+                    data = output
 
                     cmd = "rm -rf %s*" % sourcefolder
-                    status, output = commands.getstatusoutput(cmd)
-                    cmd = "docker rmi -f %s" % imagename
-                    status, output = commands.getstatusoutput(cmd)
+                    status, output = getstatusoutput(cmd)
+
+                    if connType != "local":
+                        cmd = "docker rmi -f %s" % imagename
+                        status, output = getstatusoutput(cmd)
 
                     return packagesResults
 
@@ -1518,7 +1554,7 @@ class niah_viewreport():
 
                         if data['CVEID'] == "None" or not data['CVEID']:
                                 if jsonData['header']['scanner_type'] == "system":
-                                    rowData = "(\033[1;36m%s\033[0m) %s - %s : %s\n(%s) (%s) (%s) (Product : %s) (Patch : %s%s%s) (Score : %s)\n" % (count, data['usn_id'], data['Vulnerability Name'], severityData, data['Publish Date'], data['CWE'], data['VectorString'], data['Product'], green, data['Patched Version'], end, data['BaseScore'])
+                                    rowData = "(\033[1;36m%s\033[0m) %s - %s : %s\n(%s) (%s) (%s) (Product : %s) (Patch : %s%s%s) (Score : %s)\n" % (count, data['advisoryid'], data['Vulnerability Name'], severityData, data['Publish Date'], data['CWE'], data['VectorString'], data['Product'], green, data['Patched Version'], end, data['BaseScore'])
                                     print(rowData)
                                 if jsonData['header']['scanner_type'] == "dependancies":
                                     rowData = "(\033[1;36m%s\033[0m) %s - %s\n(%s) (%s) (%s) (Product : %s) (Vendor : %s) (Patch : %s%s%s)\n" % (count, data['Vulnerability Name'], severityData, data['Publish Date'], data['CWE'], data['VectorString'], data['Product'], data['Vendor'], green, data['Patched Version'], end)
@@ -1528,7 +1564,7 @@ class niah_viewreport():
                                     print(rowData)
                         else:
                                 if jsonData['header']['scanner_type'] == "system":
-                                    rowData = "(\033[1;36m%s\033[0m) %s - %s : %s\n(%s) (%s) (%s) (Product : %s) (Patch : %s%s%s) (Score : %s)\n" % (count, data['usn_id'], data['CVEID'], severityData, data['Publish Date'], data['CWE'], data['VectorString'], data['Product'], green, data['Patched Version'], end, data['BaseScore'])
+                                    rowData = "(\033[1;36m%s\033[0m) %s - %s : %s\n(%s) (%s) (%s) (Product : %s) (Patch : %s%s%s) (Score : %s)\n" % (count, data['advisoryid'], data['CVEID'], severityData, data['Publish Date'], data['CWE'], data['VectorString'], data['Product'], green, data['Patched Version'], end, data['BaseScore'])
                                     print(rowData)
                                 if jsonData['header']['scanner_type'] == "dependancies":
                                     rowData = "(\033[1;36m%s\033[0m) %s - %s\n(%s) (%s) (%s) (Product : %s) (Vendor : %s) (Patch : %s%s%s)\n" % (count, data['CVEID'], severityData, data['Publish Date'], data['CWE'], data['VectorString'], data['Product'], data['Vendor'], green, data['Patched Version'], end)
@@ -1631,10 +1667,6 @@ class applicationVulnerabilities():
             self.results['header']['repoType'] = "local"
             self.results['header']['scan_source'] = "application"
 
-            self.results['header']['System Name'] = self.system_name
-            self.results['header']['System IP'] = self.getsystemip()
-            self.results['header']['OS Name']   = platform.platform()
-            
             self.severity = {}
             self.vuln_found = []
             self.scanApplications = []
@@ -1950,7 +1982,38 @@ class applicationVulnerabilities():
                         sys.exit(1)
 
 
-        def getInstallPkgList(self):
+        def getInstallPkgList(self, connType, dockerimage):
+                imageName = dockerimage
+                if "/" in imageName:
+                    container_name = imageName.split("/")[1]
+                    container_name = container_name.replace(":", "_")
+                else:
+                    container_name = imageName.replace(":", "_")
+
+                container_name = container_name.replace("@", "_")
+
+                cmd = 'docker run --name %s -it -d %s' % (container_name, imageName)
+                status, output = getstatusoutput(cmd)
+                data = output
+
+                cmd = 'docker export %s > /tmp/%s.tar' % (container_name, container_name)
+                status, output = getstatusoutput(cmd)
+                data = output
+
+                cmd = 'docker rm --force %s' % (container_name)
+                status, output = getstatusoutput(cmd)
+                data = output
+
+                cmd = 'mkdir /tmp/%s' % container_name
+                status, output = getstatusoutput(cmd)
+                data = output
+
+                cmd = 'sudo tar -xf /tmp/%s.tar -C /tmp/%s/' % (container_name, container_name)
+                status, output = getstatusoutput(cmd)
+                data = output
+
+                sourcefolder = "/tmp/%s" % container_name
+
                 self.results['inventory'] = []
                 resultsPackage = []
                 resJson = self.getConfig()
@@ -1964,7 +2027,7 @@ class applicationVulnerabilities():
 
                                 #location = location.encode('utf-8')
                                 #file_regex = file_regex.encode('utf-8')
-                                for filename in glob2.glob('%s/**/%s' % (location, file_regex), recursive=True):
+                                for filename in glob2.glob('%s/%s/**/%s' % (sourcefolder, location, file_regex), recursive=True):
                                         res = {}
                                         product = ''
                                         version = ''
@@ -1981,6 +2044,10 @@ class applicationVulnerabilities():
                                                 self.results['inventory'].append(res)
                                                 if product not in resultsPackage:
                                                         resultsPackage.append(product)
+
+                if connType != "local":
+                        cmd = "docker image rm -f %s" % imagename
+                        status, output = getstatusoutput(cmd)
 
                 return resultsPackage
 
@@ -2000,10 +2067,15 @@ class applicationVulnerabilities():
                                 unique_list.append(x)
                 return unique_list
 
-        def scanPackage(self):
+        def scanPackage(self, connType, imagename, os_name, os_version, os_type):
                 print("[ OK ] Preparing..., It's take some time to completed.")
-                packageLists = self.getInstallPkgList()
+                packageLists = self.getInstallPkgList(connType, imagename)
                 self.syncData(packageLists)
+
+                self.results['header']['Platform Name'] = str(os_name)
+                self.results['header']['Version'] = str(os_version)
+                self.results['header']['OS Name'] = str(os_type)
+                self.results['header']['Imagename'] =  str(imagename)
 
                 self.results['Issues'] = {}
                 self.results['Issues']['data'] = []
@@ -2457,7 +2529,7 @@ class niah_platformscan():
 
 
 class niah_dependancyscan():
-        def __init__(self, reportPath, project, target, tag, upload, repoType, resInfo={}):
+        def __init__(self, reportPath, project, target, tag, upload, repoType):
             if not path.exists("/tmp/niah.json"):
                     print("[ INFO ] Autentication Failure, use 'niah auth' cli to login")
                     sys.exit(1)
@@ -2551,35 +2623,6 @@ class niah_dependancyscan():
             self.results['header']['scanner_type'] = 'dependancies'
 
             self.results['header']['target'] = self.target
-
-            if len(resInfo) > 0:
-                for key in resInfo:
-                        if repoType == "github":
-                                if key == "repository":
-                                        self.results['header']['repository'] = resInfo[key]
-                                if key == "branch":
-                                        self.results['header']['branch'] = resInfo[key]
-                                if key == "connector":
-                                        self.results['header']['connection name'] = resInfo[key]
-                                if key == "gitId":
-                                        self.results['header']['gitId'] = resInfo[key]
-
-                        if repoType == "installer":
-                                if key == "installer_type":
-                                        self.results['header']['installer_type'] = resInfo[key]
-                                if key == "homeurl":
-                                        self.results['header']['homeurl'] = resInfo[key]
-                                if key == "projecturl":
-                                        self.results['header']['projecturl'] = resInfo[key]
-                                if key == "project":
-                                        self.results['header']['project'] = resInfo[key]
-
-            if repoType == "local" or repoType == "source":
-                self.results['header']['scan_project'] = self.results['header']['target']
-            elif repoType == "github":
-                self.results['header']['scan_project'] = self.results['header']['repository']
-            elif repoType == "installer":
-                self.results['header']['scan_project'] = self.results['header']['project']
                 
             self.vuln_depe = []
             self.severity = {}
@@ -3759,10 +3802,11 @@ class niah_dependancyscan():
                                 unique_list.append(x)
                 return unique_list
 
-        def scanPackages(self, inventory, pkgLists, testedWith, dependancy, language, auth=''):
+        def scanPackages(self, inventory, pkgLists, testedWith, dependancy, language, imagename, auth=''):
             self.language = language
             self.results['header']['language'] = language
             self.results['header']['scan_source'] = language
+            self.results['header']['imagename'] = imagename
 
             if self.language == "python" or self.language == "php" or self.language == "javascript" or self.language == "java":
                 pass
@@ -4012,12 +4056,49 @@ if __name__ == "__main__":
                                                         res.scanPlatformPackage(imagename, os_name, os_version, os_type)
 
                 elif results.scan == "application":
-                        res = applicationVulnerabilities(results.reportpath, results.projectname, results.label, results.upload)
-                        res.scanPackage()
+                        res = niah_getDockerImage(results.target, results.name)
+                        imagesLists = res.getImages(results.target, results.name, results.namespace, results.dockerimage, results.tags)
+
+                        if len(imagesLists) > 0:
+                                for connn in imagesLists:
+                                        for idata in imagesLists[connn]:
+                                                imagename = idata['imagename']
+                                                os_name = idata['os_name']
+                                                os_version = idata['os_version']
+                                                os_type = idata['os_type']
+
+                                                res = applicationVulnerabilities(results.reportpath, results.projectname, results.label, results.upload)
+                                                res.scanPackage(results.target, imagename, os_name, os_version, os_type)
+
 
                 elif results.scan == "dependancies":
-                        res = niah_dependancyscan(results.reportpath, results.projectname, target, results.label, results.upload, repoType, resInfo)
-                        res.scanPackages(inventory, pkgLists, testedWidth, dependancy, language)
+                        res = niah_getDockerImage(results.target, results.name)
+                        imagesLists = res.getImages(results.target, results.name, results.namespace, results.dockerimage, results.tags)
+
+                        if len(imagesLists) > 0:
+                                for connn in imagesLists:
+                                        for idata in imagesLists[connn]:
+                                                imagename = idata['imagename']
+                                                os_name = idata['os_name']
+                                                os_version = idata['os_version']
+                                                os_type = idata['os_type']
+
+                                                resDetails = niah_getinventory()
+                                                if results.lang:
+                                                        resDetails = resDetails.getInstallPkgList(imagename, results.target, results.lang)
+                                                else:
+                                                        resDetails = resDetails.getInstallPkgList(imagename, results.target)
+
+                                                detectLanguage = []
+                                                for language in resDetails:
+                                                        inventory = resDetails[language]['inventory']
+                                                        pkgLists = resDetails[language]['packages']
+                                                        testedWidth = resDetails[language]['testedWidth']
+                                                        dependancy = resDetails[language]['dependancy']
+
+                                                        if len(inventory) > 0:
+                                                                res = niah_dependancyscan(results.reportpath, results.projectname, results.target, results.label, results.upload, results.name)
+                                                                res.scanPackages(inventory, pkgLists, testedWidth, dependancy, language, imagename)
                 else:
                         print("[ INFO ] select proper argument, system/application/dependancies")
                         sys.exit(1)
